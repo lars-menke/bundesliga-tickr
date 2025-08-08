@@ -71,7 +71,7 @@ export default function App() {
 }}>
   Bundesliga TickR
   <img
-    src="https://upload.wikimedia.org/wikipedia/de/6/6f/Bundesliga-Logo.svg"
+    src="https://upload.wikimedia.org/wikipedia/de/thumb/d/d3/Bundesliga-Logo.png/512px-Bundesliga-Logo.png"
     alt="Bundesliga"
     style={{
       height: '28px',
