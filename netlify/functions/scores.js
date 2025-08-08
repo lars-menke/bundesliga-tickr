@@ -1,146 +1,107 @@
 // netlify/functions/scores.js
-// Liefert { currentMatchday } bzw. { matches: [...] } für BL1 (2025/26 = season "2025")
-// Nutzt die korrekte OpenLiga-API (api.openligadb.de) und normalisiert immer auf { matches }
-// Optional: ergänzt Logos – bevorzugt teamIconUrl aus OpenLiga, sonst Fallback über unsere /logo-Function
+// BL1 Ticker: { currentMatchday } oder { matches: [...] } – ohne node-fetch.
 
-import fetch from 'node-fetch'
-
-// 1. Bundesliga
 const leagueShortcut = 'bl1'
-
-// Mini-In-Memory-Cache (lebt pro Function-Container)
 const cache = new Map()
-const TTL_MS = 15 * 1000 // 15s
+const TTL_MS = 15_000
 
-const json = async (res, onErrorMsg = 'fetch failed') => {
+async function getJSON(url, label) {
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'BLTicker/1.0 (+netlify)' },
+    cache: 'no-store'
+  })
+  const text = await res.text()
   if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`${onErrorMsg}: ${res.status} ${txt}`)
+    console.error(`[${label}] HTTP ${res.status}: ${text?.slice(0,200)}`)
+    throw new Error(`${label} failed ${res.status}`)
   }
-  return res.json()
+  try { return JSON.parse(text) } catch (e) {
+    console.error(`[${label}] JSON parse error`, e, text?.slice(0,200))
+    throw e
+  }
 }
 
-const getCurrentMatchday = async () => {
-  // Achtung: getcurrentgroup braucht KEINEN Saison-Parameter
+async function getCurrentMatchday() {
   const url = `https://api.openligadb.de/getcurrentgroup/${leagueShortcut}`
-  const res = await fetch(url)
-  const data = await json(res, 'OpenLiga current failed')
-  // Normalerweise: { groupOrderID, ... }
-  const currentMatchday = Number(data?.groupOrderID ?? 0)
-  return { currentMatchday: currentMatchday || 1 }
+  const data = await getJSON(url, 'current')
+  const currentMatchday = Number(data?.groupOrderID ?? 0) || 1
+  return { currentMatchday }
 }
 
-const fetchFixtures = async (season, matchday) => {
+async function getFixtures(season, matchday) {
   const url = `https://api.openligadb.de/getmatchdata/${leagueShortcut}/${season}/${matchday}`
-  const res = await fetch(url)
-  const raw = await json(res, 'OpenLiga fixtures failed')
-  // OpenLiga liefert ein Array
-  const arr = Array.isArray(raw) ? raw : (raw?.matches || [])
-  return arr
+  const raw = await getJSON(url, 'fixtures')
+  return Array.isArray(raw) ? raw : (raw?.matches || [])
 }
 
-const latestScore = (match) => {
-  // Bevorzugt Goals (Live), sonst letztes MatchResult
-  if (Array.isArray(match.goals) && match.goals.length) {
-    const last = match.goals[match.goals.length - 1]
+function latestScore(m) {
+  if (Array.isArray(m.goals) && m.goals.length) {
+    const last = m.goals[m.goals.length - 1]
     return {
-      goalsTeam1: typeof last.scoreTeam1 === 'number' ? last.scoreTeam1 : null,
-      goalsTeam2: typeof last.scoreTeam2 === 'number' ? last.scoreTeam2 : null
+      goalsTeam1: Number.isFinite(last?.scoreTeam1) ? last.scoreTeam1 : null,
+      goalsTeam2: Number.isFinite(last?.scoreTeam2) ? last.scoreTeam2 : null
     }
   }
-  if (Array.isArray(match.matchResults) && match.matchResults.length) {
-    const last = match.matchResults[match.matchResults.length - 1]
+  if (Array.isArray(m.matchResults) && m.matchResults.length) {
+    const last = m.matchResults[m.matchResults.length - 1]
     return {
-      goalsTeam1: typeof last.pointsTeam1 === 'number' ? last.pointsTeam1 : null,
-      goalsTeam2: typeof last.pointsTeam2 === 'number' ? last.pointsTeam2 : null
+      goalsTeam1: Number.isFinite(last?.pointsTeam1) ? last.pointsTeam1 : null,
+      goalsTeam2: Number.isFinite(last?.pointsTeam2) ? last.pointsTeam2 : null
     }
   }
   return { goalsTeam1: null, goalsTeam2: null }
 }
 
-const resolveLogo = async (team) => {
-  // 1) Falls OpenLiga bereits ein Icon liefert → nehmen
-  if (team?.teamIconUrl) return team.teamIconUrl
-
-  // 2) Fallback über unsere Logo-Function (Wikipedia-Suche)
-  try {
-    const baseUrl = process.env.URL || '' // von Netlify gesetzt
-    if (!baseUrl) return null
-    const r = await fetch(`${baseUrl}/.netlify/functions/logo?team=${encodeURIComponent(team?.teamName || '')}`)
-    if (!r.ok) return null
-    const j = await r.json()
-    return j?.logo || null
-  } catch {
-    return null
-  }
-}
-
-const normalizeMatches = async (list) => {
-  // Logos nur auflösen, wenn kein teamIconUrl vorhanden ist
-  return Promise.all(
-    list.map(async (m) => {
-      const score = latestScore(m)
-      const team1Logo = m.team1?.teamIconUrl || await resolveLogo(m.team1)
-      const team2Logo = m.team2?.teamIconUrl || await resolveLogo(m.team2)
-
-      return {
-        matchID: m.matchID,
-        matchDateTime: m.matchDateTime,
-        matchDateTimeUTC: m.matchDateTimeUTC,
-        leagueShortcut: m.leagueShortcut,
-        leagueSeason: m.leagueSeason,
-        group: m.group,
-        matchIsFinished: !!m.matchIsFinished,
-        matchIsLive: !m.matchIsFinished && Array.isArray(m.goals) && m.goals.length > 0,
-        matchMinute: m.location?.matchMinute ?? null,
-        goalsTeam1: score.goalsTeam1,
-        goalsTeam2: score.goalsTeam2,
-        team1: {
-          teamId: m.team1?.teamId,
-          teamName: m.team1?.teamName,
-          shortName: m.team1?.shortName,
-          logo: team1Logo
-        },
-        team2: {
-          teamId: m.team2?.teamId,
-          teamName: m.team2?.teamName,
-          shortName: m.team2?.shortName,
-          logo: team2Logo
-        }
+async function normalize(matches) {
+  return Promise.all(matches.map(async m => {
+    const s = latestScore(m)
+    return {
+      matchID: m.matchID,
+      matchDateTime: m.matchDateTime,
+      matchDateTimeUTC: m.matchDateTimeUTC,
+      leagueShortcut: m.leagueShortcut,
+      leagueSeason: m.leagueSeason,
+      group: m.group,
+      matchIsFinished: !!m.matchIsFinished,
+      matchIsLive: !m.matchIsFinished && Array.isArray(m.goals) && m.goals.length > 0,
+      matchMinute: m.location?.matchMinute ?? null,
+      goalsTeam1: s.goalsTeam1,
+      goalsTeam2: s.goalsTeam2,
+      team1: {
+        teamId: m.team1?.teamId,
+        teamName: m.team1?.teamName,
+        shortName: m.team1?.shortName,
+        logo: m.team1?.teamIconUrl || null
+      },
+      team2: {
+        teamId: m.team2?.teamId,
+        teamName: m.team2?.teamName,
+        shortName: m.team2?.shortName,
+        logo: m.team2?.teamIconUrl || null
       }
-    })
-  )
+    }
+  }))
 }
 
 export const handler = async (event) => {
   try {
     const qs = event.queryStringParameters || {}
-    const season = qs.season // z. B. "2025" für 2025/26
+    const season = qs.season
     const matchday = qs.matchday
     const wantCurrent = !!qs.current
 
-    // CURRENT MATCHDAY
     if (wantCurrent) {
-      const key = `current-${season || 'na'}`
+      const key = 'current'
       const now = Date.now()
       const c = cache.get(key)
       if (c && now - c.t < TTL_MS) {
-        return {
-          statusCode: 200,
-          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=10' },
-          body: JSON.stringify(c.v)
-        }
+        return { statusCode: 200, headers:{'Content-Type':'application/json','Cache-Control':'max-age=10'}, body: JSON.stringify(c.v) }
       }
       const payload = await getCurrentMatchday()
       cache.set(key, { t: now, v: payload })
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=10' },
-        body: JSON.stringify(payload)
-      }
+      return { statusCode: 200, headers:{'Content-Type':'application/json','Cache-Control':'max-age=10'}, body: JSON.stringify(payload) }
     }
 
-    // FIXTURES
     if (!season || !matchday) {
       return { statusCode: 400, body: JSON.stringify({ error: 'season and matchday required' }) }
     }
@@ -149,25 +110,17 @@ export const handler = async (event) => {
     const now = Date.now()
     const c = cache.get(key)
     if (c && now - c.t < TTL_MS) {
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=10' },
-        body: JSON.stringify(c.v)
-      }
+      return { statusCode: 200, headers:{'Content-Type':'application/json','Cache-Control':'max-age=10'}, body: JSON.stringify(c.v) }
     }
 
-    const raw = await fetchFixtures(season, matchday)
-    const matches = await normalizeMatches(raw)
+    const raw = await getFixtures(season, matchday)
+    const matches = await normalize(raw)
     const payload = { matches }
 
     cache.set(key, { t: now, v: payload })
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=10' },
-      body: JSON.stringify(payload)
-    }
+    return { statusCode: 200, headers:{'Content-Type':'application/json','Cache-Control':'max-age=10'}, body: JSON.stringify(payload) }
   } catch (e) {
-    console.error(e)
-    return { statusCode: 500, body: JSON.stringify({ error: 'server error' }) }
+    console.error('scores handler error:', e)
+    return { statusCode: 500, body: JSON.stringify({ error: 'server error', detail: String(e?.message || e) }) }
   }
 }
