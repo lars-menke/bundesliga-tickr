@@ -62,24 +62,27 @@ export default function App() {
   return (
     <div className="container">
       <header>
-        <h1 style={{
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  fontSize: '1.8rem',
-  fontWeight: 'bold'
-}}>
+        <h1
+  style={{
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '1.8rem',
+    fontWeight: 'bold',
+  }}
+>
   Bundesliga TickR
   <img
-    src="https://upload.wikimedia.org/wikipedia/de/thumb/d/d3/Bundesliga-Logo.png/512px-Bundesliga-Logo.png"
-    alt="Bundesliga"
+    src="/assets/bundesliga.png"
+    alt="Bundesliga Logo"
     style={{
       height: '28px',
       width: 'auto',
-      verticalAlign: 'middle'
+      verticalAlign: 'middle',
     }}
   />
 </h1>
+
 
         <div className="controls">
           <button onClick={onSubscribePush}>Push aktivieren</button>
