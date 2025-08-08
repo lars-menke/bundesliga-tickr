@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Bundesliga Ticker',
-        short_name: 'BL Ticker',
+        name: 'Bundesliga TickR',
+        short_name: 'BL TickR',
         description: 'Live-Ergebnisse 1. Fußball-Bundesliga',
         theme_color: '#111111',
         background_color: '#111111',
