@@ -44,7 +44,7 @@ export const handler = async (event, context) => {
       const c = cache.get(key)
       if (c && now - c.t < TTL) return { statusCode: 200, body: JSON.stringify(c.v), headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=10' } }
 
-      const url = `https://www.openligadb.de/api/getcurrentgroup/${leagueShortcut}/${season}`
+      const url = `https://api.openligadb.de/getcurrentgroup/${leagueShortcut}`
       const r = await fetch(url)
       if (!r.ok) throw new Error('OpenLiga current failed')
       const data = await r.json()
@@ -60,7 +60,7 @@ export const handler = async (event, context) => {
     const c = cache.get(key)
     if (c && now - c.t < TTL) return { statusCode: 200, body: JSON.stringify(c.v), headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=10' } }
 
-    const url = `https://www.openligadb.de/api/getmatchdata/${leagueShortcut}/${season}/${matchday}`
+    const url = `https://api.openligadb.de/getmatchdata/${leagueShortcut}/${season}/${matchday}`
     const r = await fetch(url)
     if (!r.ok) throw new Error('OpenLiga fixtures failed')
     const data = await r.json()
